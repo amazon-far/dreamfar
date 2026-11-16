@@ -48,9 +48,23 @@ pip install -e .
 
 ## Download
 
-The checkpoints (tokenizer, dynamics, normalizer) and a small pack of sample start scenes will be published on
-Hugging Face under [Amazon-FAR](https://huggingface.co/Amazon-FAR); download commands and sha256s will appear here.
-You also need the YAM robot URDF (`yam.urdf`) for the end-effector kinematics.
+Checkpoints and sample scenes are on Hugging Face: [Amazon-FAR/dreamfar](https://huggingface.co/Amazon-FAR/dreamfar).
+
+| file | what | size | sha256 |
+|---|---|---|---|
+| `tok256_step000200000.ckpt` | image tokenizer: a 256×256 image → 16×16×16 unit-sphere latent | 386 MB | `1442f5a7e3deb647a6fb14c97b825388e372aa8d0a19828c6dd058f3f167cde0` |
+| `dreamfar_v9_step000054000.ckpt` | dynamics model (paper checkpoint, EMA weights, bf16) | 4.4 GB | `7c258a722f40587a5ca39bb3f49a48b187c0e8d3588757140900392fa4c61365` |
+| `spec_ee_joint_normalizer.pt` | action/state normalizer (also baked into the dynamics checkpoint; needed for training) | 9 KB | `d4a6733eebf7989d7fb8ef519ac4e8efd663da54de66af5a5f361ca4eb0adf21` |
+| `yam.urdf` | YAM bimanual station kinematics for the end-effector actions | 14 KB | `6dbda3fc41aaf9dc7eba6481011a2bbf06a0bb85816995b6276300c5098e8eb8` |
+| `scenes/` | 10 sample start scenes (latents, states, contact labels; see `scenes/README_scenes.md`) | 136 MB | `scenes/SHA256SUMS` |
+
+```bash
+pip install -U "huggingface_hub[cli]"
+hf download Amazon-FAR/dreamfar --local-dir dreamfar_assets        # everything, ~5 GB
+(cd dreamfar_assets && sha256sum -c SHA256SUMS && cd scenes && sha256sum -c SHA256SUMS)
+# or a single file without the CLI:
+wget https://huggingface.co/Amazon-FAR/dreamfar/resolve/main/tok256_step000200000.ckpt
+```
 
 ## Quick start
 
@@ -58,17 +72,19 @@ Roll the model out from a sample scene (10 s of seed frames, then 10 s predicted
 `[prediction | ground truth]` videos plus PSNR / SSIM / LPIPS per view:
 
 ```bash
-python -m dreamfar.inference.rollout --ckpt dreamfar_v9_step000054000.ckpt --config configs/release/dreamfar_v9.yaml \
-    --tokenizer-ckpt tok256_step000200000.ckpt --tokenizer-config configs/release/tok256_ssdd_final_v1.yaml --urdf yam.urdf \
-    --latent-root <latent_root> --contact-dir <contact_dir> --episode 0 --regime mid --frames 300 --out outputs/rollouts
+A=dreamfar_assets
+python -m dreamfar.inference.rollout --ckpt $A/dreamfar_v9_step000054000.ckpt --config configs/release/dreamfar_v9.yaml \
+    --tokenizer-ckpt $A/tok256_step000200000.ckpt --tokenizer-config configs/release/tok256_ssdd_final_v1.yaml --urdf $A/yam.urdf \
+    --latent-root $A/scenes/latents --contact-dir $A/scenes/contact --episode 0 --regime mid --frames 200 --out outputs/rollouts
 ```
 
 Drive the model yourself in the browser (keyboard and mouse control of both arms):
 
 ```bash
-export DEMO_CKPT=dreamfar_v9_step000054000.ckpt DEMO_CONFIG=configs/release/dreamfar_v9.yaml \
-       TOKENIZER_CKPT=tok256_step000200000.ckpt TOKENIZER_CONFIG=configs/release/tok256_ssdd_final_v1.yaml \
-       URDF_PATH=yam.urdf LATENT_ROOT=<latent_root> CONTACT_DIR=<contact_dir> HELDOUT_PATH=<heldout.json>
+A=dreamfar_assets
+export DEMO_CKPT=$A/dreamfar_v9_step000054000.ckpt DEMO_CONFIG=configs/release/dreamfar_v9.yaml \
+       TOKENIZER_CKPT=$A/tok256_step000200000.ckpt TOKENIZER_CONFIG=configs/release/tok256_ssdd_final_v1.yaml \
+       URDF_PATH=$A/yam.urdf LATENT_ROOT=$A/scenes/latents CONTACT_DIR=$A/scenes/contact HELDOUT_PATH=$A/scenes/scenes.json
 CUDA_VISIBLE_DEVICES=0 python -m uvicorn dreamfar.demo.server:app --host 127.0.0.1 --port 8000 \
     --ws-max-size 33554432 --ws-per-message-deflate false
 # open http://localhost:8000 (tunnel the port from a remote machine); headless check:
