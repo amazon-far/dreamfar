@@ -11,7 +11,7 @@ einops==0.8.0
 rotary-embedding-torch==0.8.6
 safetensors>=0.4
 # diffusers + pyyaml are imported by the ssdd package (scripts/install_ssdd.sh)
-diffusers==0.29.2
+diffusers==0.38.0
 pyyaml>=6.0
 huggingface_hub>=0.24
 schedulefree==1.4.1
