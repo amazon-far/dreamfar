@@ -1,10 +1,20 @@
 <div align="center">
 
-# DreamFAR: a real-time streaming world model for bimanual manipulation
+# DreamFAR: Real-Time and Long-Horizon Interaction with Diverse Objects
 
-[![Paper](https://img.shields.io/badge/arXiv-PAPER--ID-b31b1b.svg)](https://arxiv.org/abs/PAPER-ID)
+[Yiming Dou](https://www.yimingdou.com/)<sup>1,2</sup>,
+[Botao He](https://bottle101.github.io/)<sup>1,3</sup>,
+[Antonio Loquercio](https://antonilo.github.io/)<sup>4</sup>,
+[Andrew Owens](https://andrewowens.com/)<sup>2</sup>,
+[Jitendra Malik](https://people.eecs.berkeley.edu/~malik/)<sup>1</sup>,
+[Sumedh Anand Sontakke](https://sumedh7.github.io/)<sup>1</sup>,
+[Ruoshi Liu](https://ruoshiliu.github.io/)<sup>1,3</sup>
+
+<sup>1</sup>Amazon FAR &nbsp; <sup>2</sup>Cornell University &nbsp; <sup>3</sup>University of Maryland, College Park &nbsp; <sup>4</sup>University of Pennsylvania
+
+[![Paper](https://img.shields.io/badge/Paper-PDF-b31b1b.svg)](https://amazon-far.github.io/dreamfar/assets/paper/DreamFAR.pdf)
 [![Project page](https://img.shields.io/badge/Project-page-blue.svg)](https://amazon-far.github.io/dreamfar/)
-[![Demo](https://img.shields.io/badge/Live-demo-green.svg)](https://DEMO-URL)
+[![Code](https://img.shields.io/badge/Code-GitHub-black.svg)](https://github.com/amazon-far/dreamfar)
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 
 <img src="assets/teaser.jpg" alt="DreamFAR teaser" width="90%"/>
