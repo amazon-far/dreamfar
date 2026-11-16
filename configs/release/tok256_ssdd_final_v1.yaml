@@ -1,0 +1,20 @@
+# Config of the released 256x256 tokenizer checkpoint (tok256_ssdd_final_v1, step 200000).
+# Read by dreamfar.tokenizer.net.load_tokenizer / build_tokenizer (encoder, decoder_size, z_dim,
+# fm_trainer, fm_sampler, decoder_z_scale, decoder_attn_norm); literal values, no interpolation.
+algorithm:
+  image_size: 256
+  z_dim: 16
+  encoder_type: ssdd_native
+  encoder:
+    patch_size: 16
+  decoder_size: M
+  decoder_levels: native
+  decoder_z_scale: 3.6244
+  decoder_attn_norm: rms_norm
+  fm_trainer:
+    timescale: 1000
+    sigma_min: 0.0
+  fm_sampler:
+    steps: 2
+    t_pow_shift: 2.0
+  val_steps: 2

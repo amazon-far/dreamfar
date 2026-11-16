@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dreamfar"
+version = "0.1.0"
+description = "DreamFAR: a real-time streaming world model for bimanual robot manipulation"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.11"
+dynamic = ["dependencies"]
+
+[tool.setuptools]
+packages = {find = {include = ["dreamfar*"]}}
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}

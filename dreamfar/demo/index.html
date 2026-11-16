@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<!-- Viewer for dreamfar/demo/server.py: three camera views + dashboard panels (Model / Stream / Memory), keyboard
+     and mouse input modes switchable live. The websocket follows the page's host:port.
+
+     Render path: binary frame -> createImageBitmap (off the main thread) -> ONE drawImage per view as soon as the
+     bitmap is ready; frames finishing out of order are skipped (frame index guard). Every readout is refreshed by
+     ONE 4 Hz timer. Header layout (server.py HDR, 52 bytes): t_input(f64) frame(i32) gL gR(f32) aq(i32)
+     L_pos(3f) R_pos(3f) inflight(i32); the JPEG panel [view|view|view] follows. Vanilla JS, no framework. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DreamFAR — interactive world model</title>
+<style>
+  :root { --bg:#0e1116; --panel:#161b22; --line:#2a313c; --fg:#d7dde5; --dim:#8b95a3; --acc:#3ddc97;
+          --warn:#f5b942; --err:#ff6b6b; --blue:#5aa9ff; font-size:14px; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.45 -apple-system, "Inter", "Segoe UI", Roboto, sans-serif; }
+  header { display:flex; align-items:center; gap:14px; padding:10px 18px; border-bottom:1px solid var(--line); background:var(--panel); }
+  header h1 { font-size:15px; margin:0; font-weight:600; letter-spacing:.2px; }
+  .badge { display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:999px; font-size:12px;
+           font-weight:600; border:1px solid var(--line); background:#0b0e13; color:var(--dim); white-space:nowrap; }
+  .badge b { color:var(--fg); font-weight:600; }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--dim); }
+  #mode { font-size:13px; padding:5px 14px; }
+  #mode.idle { color:var(--warn); border-color:#5a4a22; }        #mode.idle .dot { background:var(--warn); }
+  #mode.streaming { color:var(--acc); border-color:#1f5a44; }   #mode.streaming .dot { background:var(--acc); }
+  #mode.dead { color:var(--err); border-color:#6b1f1f; }        #mode.dead .dot { background:var(--err); }
+  #mode.starting .dot { animation:blink .6s steps(2) infinite; }
+  @keyframes blink { 50% { opacity:.15; } }
+  .spacer { flex:1; }
+  main { padding:14px 18px; display:grid; gap:14px; }
+  .views { display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; position:relative; }
+  figure { margin:0; background:#000; border:1px solid var(--line); border-radius:8px; overflow:hidden; position:relative; }
+  figure canvas { display:block; width:100%; aspect-ratio:1/1; image-rendering:auto; background:#000; }
+  figcaption { position:absolute; left:8px; top:6px; font-size:11px; font-weight:700; letter-spacing:.6px;
+               color:#fff; text-shadow:0 1px 3px #000; opacity:.85; }
+  .dash { display:grid; grid-template-columns:repeat(auto-fit, minmax(380px, 1fr)); gap:12px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
+  .panel h2 { margin:0 0 8px; font-size:11px; font-weight:700; color:var(--dim); text-transform:uppercase; letter-spacing:.7px;
+              display:flex; align-items:center; gap:8px; }
+  .panel h2 .tag { font-weight:600; text-transform:none; letter-spacing:0; }
+  .kv { display:grid; grid-template-columns:auto minmax(0, 1fr); column-gap:12px; row-gap:3px; align-items:baseline; }
+  .kv .k { color:var(--dim); font-size:12px; white-space:nowrap; }
+  .kv .v { font:13px ui-monospace, Menlo, Consolas, monospace; font-variant-numeric:tabular-nums; text-align:right; white-space:nowrap;
+           min-width:0; overflow:hidden; text-overflow:ellipsis; }
+  .kv .v small, .big small { font-size:11px; color:var(--dim); margin-left:3px; font-weight:500; }
+  .big { font:600 22px ui-monospace, Menlo, Consolas, monospace; font-variant-numeric:tabular-nums; line-height:1.15; }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:6px 14px; margin-bottom:8px; }
+  .two .k { color:var(--dim); font-size:11px; text-transform:uppercase; letter-spacing:.5px; }
+  .ok { color:var(--acc); } .warn { color:var(--warn); } .bad { color:var(--err); } .na { color:var(--dim); }
+  .v.warn::before, .big.warn::before { content:"▲ "; font-size:.75em; }
+  .v.bad::before, .big.bad::before { content:"● "; font-size:.75em; }
+  .bar { height:4px; background:#0b0e13; border-radius:2px; margin-top:4px; overflow:hidden; }
+  .bar i { display:block; height:100%; width:0; background:var(--blue); transition:width .15s linear; }
+  .bar i.warn { background:var(--warn); } .bar i.bad { background:var(--err); }
+  .spark { display:block; width:100%; height:38px; margin-top:6px; background:#0b0e13; border-radius:4px; }
+  .sparklbl { display:flex; justify-content:space-between; font-size:10px; color:var(--dim); margin-top:2px; font-family:ui-monospace, Menlo, monospace; }
+  .memtiles { display:grid; grid-template-columns:repeat(8, 1fr); gap:4px; margin:6px 0 8px; }
+  .memtile { height:28px; border:1px solid var(--line); border-radius:4px; display:flex; align-items:center; justify-content:center;
+             font:10px ui-monospace, Menlo, monospace; color:#4a5563; background:#0b0e13; }
+  .memtile.on { background:#1f4d3a; border-color:#2b7a58; color:var(--fg); }
+  .row { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
+  button, select { background:#1d2430; color:var(--fg); border:1px solid #38414f; border-radius:7px; padding:8px 14px;
+                   font:inherit; font-weight:600; cursor:pointer; }
+  button:hover { border-color:var(--acc); } button:disabled { opacity:.45; cursor:default; }
+  button.primary { background:#1f4d3a; border-color:#2b7a58; }
+  select { max-width:420px; }
+  kbd { background:#0b0e13; border:1px solid #3a4452; border-bottom-width:2px; border-radius:4px; padding:0 6px; color:#ffd866; font:12px ui-monospace, Menlo, monospace; }
+  .muted { color:var(--dim); } .mono { font-family:ui-monospace, Menlo, monospace; font-size:12px; }
+  label.ck { display:inline-flex; align-items:center; gap:6px; color:var(--dim); font-size:12px; cursor:pointer; }
+  details summary { cursor:pointer; color:var(--dim); font-weight:600; }
+  table { border-collapse:collapse; margin-top:6px; } td { padding:2px 12px 2px 0; vertical-align:middle; }
+  .on { color:var(--acc); font-weight:700; } .off { color:#4a5563; }
+  #toasts { position:fixed; right:16px; bottom:16px; display:flex; flex-direction:column; gap:8px; z-index:9; }
+  .toast { background:#2a1414; border:1px solid var(--err); color:#ffd6d6; padding:10px 14px; border-radius:8px; max-width:520px;
+           box-shadow:0 6px 24px #0008; font-size:13px; }
+  .toast.info { background:#14232a; border-color:var(--blue); color:#d6ecff; }
+  .overlay { position:fixed; inset:0; background:#000a; display:none; align-items:center; justify-content:center; z-index:10; }
+  .overlay.on { display:flex; } .overlay .panel { max-width:720px; box-shadow:0 12px 48px #000c; }
+</style>
+</head>
+<body>
+<header>
+  <h1>DreamFAR streaming world model</h1>
+  <span class="badge" id="modelbadge"><b>model</b> —</span>
+  <span class="badge" id="seedbadge"><b>seed</b> —</span>
+  <span class="badge" id="pipebadge">—</span>
+  <span class="spacer"></span>
+  <span class="badge" id="sock"><span class="dot"></span> CONNECTING</span>
+  <span class="badge starting" id="mode"><span class="dot"></span><span id="modetxt">STARTING</span></span>
+</header>
+
+<main>
+  <section class="views" id="views"></section>
+
+  <section class="dash">
+    <div class="panel" id="p_model"><h2>Model <span class="tag mono" id="m_id">—</span></h2>
+      <div class="two">
+        <div><div class="k">dynamics step</div><div class="big" id="dyn">—<small>ms</small></div><div class="k mono" id="dync"></div></div>
+        <div><div class="k">decode (NFE <span id="nfe">2</span>)</div><div class="big" id="dec">—<small>ms</small></div><div class="k mono" id="decc"></div></div>
+      </div>
+      <div class="kv">
+        <span class="k">P (flow steps)</span><span class="v" id="pval">—</span>
+        <span class="k">context noise</span><span class="v" id="ctx">—</span>
+        <span class="k">start mode</span><span class="v" id="startmode">—</span>
+        <span class="k">seed → first frame</span><span class="v" id="prol">—</span>
+        <span class="k">checkpoint</span><span class="v" id="ckpt">—</span>
+      </div>
+    </div>
+
+    <div class="panel" id="p_stream"><h2>Stream</h2>
+      <div class="two">
+        <div><div class="k">model fps</div><div class="big" id="mfps">—</div></div>
+        <div><div class="k">render fps</div><div class="big" id="rfps">—</div></div>
+        <div><div class="k">input → photon p50</div><div class="big" id="lat">—<small>ms</small></div></div>
+        <div><div class="k">input → photon p90</div><div class="big" id="latp90">—<small>ms</small></div></div>
+      </div>
+      <div class="kv">
+        <span class="k">websocket rtt</span><span class="v" id="rtt">—</span>
+        <span class="k">action queue</span><span class="v" id="aq">0</span>
+        <span class="k">in flight (pyramid)</span><span class="v" id="inflight">0<small id="pdepth"></small></span>
+        <span class="k">frame · committed</span><span class="v" id="frame">—</span>
+        <span class="k">drops ws · late · queue · skip</span><span class="v" id="losses">0 · 0 · 0 · 0</span>
+        <span class="k">jpeg / frame</span><span class="v" id="jpg">—</span>
+      </div>
+      <div class="bar"><i id="aqbar"></i></div>
+      <div class="bar"><i id="ifbar"></i></div>
+      <canvas class="spark" id="sp_fps"></canvas><div class="sparklbl"><span>model fps · 15 s</span><span id="sp_fps_l"></span></div>
+      <canvas class="spark" id="sp_lat"></canvas><div class="sparklbl"><span>input → photon ms · 15 s</span><span id="sp_lat_l"></span></div>
+    </div>
+
+    <div class="panel" id="p_mem"><h2>Memory <span class="tag" id="memtag"></span></h2>
+      <div class="big" id="mem">—</div>
+      <div class="memtiles" id="memtiles"></div>
+      <div class="kv">
+        <span class="k">keyframe bank (KV pool)</span><span class="v" id="bank">—</span>
+        <span class="k">memory frames</span><span class="v mono" id="memf">—</span>
+        <span class="k">gripper L · R (1 = open)</span><span class="v" id="lgrip">—</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel row">
+    <select id="ctrlsel" title="input mode (switching keeps the scene)">
+      <option value="keyboard">Control: keyboard</option>
+      <option value="mouse">Control: mouse</option>
+    </select>
+    <select id="task"><option value="">Any task</option></select>
+    <select id="seedmode" title="Start mode for the NEXT loaded scene">
+      <option value="mid">Start: mid-episode (10 s)</option>
+      <option value="dup">Start: cold start (frame 0)</option>
+    </select>
+    <button id="newep" class="primary" title="Shift+N">New scene</button>
+    <button id="reset" title="Shift+R">Reset</button>
+    <label class="ck"><input type="checkbox" id="chartsck"> charts</label>
+    <button id="helpbtn" title="?">?</button>
+    <span class="muted mono" id="meta"></span>
+  </section>
+
+  <details class="panel" id="legendbox" open><summary>Controls</summary>
+    <div id="legend"></div>
+    <p class="muted" id="kbdhelp"></p>
+  </details>
+</main>
+
+<div id="toasts"></div>
+<div id="help" class="overlay"><div class="panel">
+  <h3 style="margin:0 0 8px">Shortcuts</h3>
+  <table>
+    <tr><td><kbd>Shift</kbd>+<kbd>N</kbd></td><td>New scene (from the selected task)</td></tr>
+    <tr><td><kbd>Shift</kbd>+<kbd>R</kbd></td><td>Reset (same scene)</td></tr>
+    <tr><td><kbd>?</kbd></td><td>This help</td><td><kbd>Esc</kbd> close</td></tr>
+  </table>
+  <p class="muted"><b>Keyboard mode</b>: hold the keys in the Controls table; each key moves the end effector by a
+    fixed step per frame (differential IK, joints clamped to the data range).<br>
+    <b>Mouse mode</b>: over the TOP view, left-click takes the LEFT arm, right-click the RIGHT arm; the pointer sets
+    that arm's table position, the wheel its height, <kbd>Q</kbd>/<kbd>W</kbd> <kbd>A</kbd>/<kbd>S</kbd> <kbd>Z</kbd>/<kbd>X</kbd>
+    its orientation, <kbd>Space</kbd> / middle click toggles its gripper.<br>
+    The model only steps while an input is pending; with nothing queued it idles with its KV cache frozen.</p>
+</div></div>
+
+<script>
+const el = id => document.getElementById(id);
+const CODE_OF = ch => /^[a-z]$/.test(ch) ? 'Key' + ch.toUpperCase()
+                    : /^[0-9]$/.test(ch) ? 'Digit' + ch
+                    : ({ ',': 'Comma', '.': 'Period', ';': 'Semicolon', '[': 'BracketLeft', ']': 'BracketRight' })[ch] || ch;
+const HDR_LEN = 52;                                  // ">diffi6fi"; the JPEG starts here
+const LABEL = { top: 'TOP', left: 'LEFT WRIST', right: 'RIGHT WRIST' };
+// Threshold colours (green <= ok, amber <= warn, red above; `lowerBad` flips the sense).
+const TH = { mfps: [9.5, 8.0, true], rfps: [9.5, 8.0, true], aq: [2, 5], drops: [0, 5], dec: [30, 50] };
+const grade = (v, [ok, warn, lowerBad]) => v === null || v === undefined || Number.isNaN(v) ? 'na'
+  : lowerBad ? (v >= ok ? 'ok' : v >= warn ? 'warn' : 'bad') : (v <= ok ? 'ok' : v <= warn ? 'warn' : 'bad');
+
+// ---- state -------------------------------------------------------------------------------------
+let KEYLIST = [], keys = {}, KEYMAP = {}, lastSent = '', ctrlMode = '';
+let srvState = 'starting', hello = null;
+let viewOrder = ['left', 'top', 'right'], canvases = [], ctxs = [];
+let lastDrawn = -1, nSkip = 0, nLate = 0, tLastDraw = 0;
+const S = { latDisp: [], aq: 0, inflight: 0, frame: -1, committed: 0, mem: null, bank: null, nMem: 0,
+            drop: 0, wsDrop: 0, P: 0, dyn: null, dec: null, memf: [], compiled: null, gl: null, gr: null, rtt: null,
+            prologue: null, jpgKb: [] };
+const tArrive = [], tRender = [];
+let CHARTS = new URLSearchParams(location.search).get('charts') !== '0';
+el('chartsck').checked = CHARTS;
+el('chartsck').onchange = () => { CHARTS = el('chartsck').checked; for (const c of document.querySelectorAll('.spark')) c.style.display = CHARTS ? '' : 'none'; };
+if (!CHARTS) for (const c of document.querySelectorAll('.spark')) c.style.display = 'none';
+el('seedmode').value = localStorage.getItem('demo.seedmode') || 'mid';
+el('seedmode').onchange = () => { localStorage.setItem('demo.seedmode', el('seedmode').value);
+  toast(`start mode "${el('seedmode').selectedOptions[0].text}" takes effect from the NEXT loaded scene`, 'info'); };
+
+// ---- ring buffers for the sparklines (4 Hz x 15 s) --------------------------------------------
+function ring(n) { const a = new Float32Array(n); let i = 0, c = 0; return {
+  push(v) { a[i] = v; i = (i + 1) % n; if (c < n) c++; },
+  values() { const o = new Array(c); for (let k = 0; k < c; k++) o[k] = a[(i - c + k + n) % n]; return o; } }; }
+const R = { fps: ring(60), lat: ring(60) };
+const SPK = {};
+function sparkSize() { for (const cv of document.querySelectorAll('.spark')) {
+  const r = cv.getBoundingClientRect(); const W = r.width | 0, H = r.height | 0;
+  if (W && H) { cv.width = W; cv.height = H; } SPK[cv.id] = { cv, g: cv.getContext('2d'), W: cv.width, H: cv.height, last: '' }; } }
+sparkSize(); window.addEventListener('resize', sparkSize);
+function spark(id, vals, lblId, fmt, cls) {
+  if (!CHARTS || !vals.length) return;
+  const sp = SPK[id]; if (!sp) return;
+  const { g, W, H } = sp; g.clearRect(0, 0, W, H);
+  let lo = Infinity, hi = -Infinity; for (const v of vals) { if (v < lo) lo = v; if (v > hi) hi = v; }
+  if (hi - lo < 1e-9) { hi = lo + 1; lo -= 1; }
+  g.strokeStyle = cls === 'bad' ? '#ff6b6b' : cls === 'warn' ? '#f5b942' : '#5aa9ff'; g.lineWidth = 1.5; g.beginPath();
+  const n = vals.length, x0 = 3, x1 = W - 3;
+  for (let k = 0; k < n; k++) { const x = x0 + (x1 - x0) * k / Math.max(1, 59), y = 3 + (H - 6) * (1 - (vals[k] - lo) / (hi - lo));
+    k ? g.lineTo(x, y) : g.moveTo(x, y); }
+  g.stroke();
+  const lbl = `${fmt(lo)} … ${fmt(hi)}  now ${fmt(vals[n - 1])}`;
+  if (lbl !== sp.last) { sp.last = lbl; el(lblId).textContent = lbl; }
+}
+
+// ---- views -------------------------------------------------------------------------------------
+function buildViews(order) {
+  viewOrder = order; canvases = []; ctxs = [];
+  el('views').innerHTML = '';
+  for (const v of order) {
+    const f = document.createElement('figure');
+    const c = document.createElement('canvas'); c.width = 256; c.height = 256;
+    const cap = document.createElement('figcaption'); cap.textContent = LABEL[v] || v.toUpperCase();
+    f.appendChild(c); f.appendChild(cap); el('views').appendChild(f);
+    canvases.push(c); ctxs.push(c.getContext('2d', { alpha: false, desynchronized: true }));
+  }
+}
+buildViews(viewOrder);
+const tiles = el('memtiles'); for (let k = 0; k < 8; k++) { const d = document.createElement('div'); d.className = 'memtile'; d.textContent = '·'; tiles.appendChild(d); }
+
+// ---- socket ------------------------------------------------------------------------------------
+const SOCK = ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'];
+const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+ws.binaryType = 'arraybuffer';
+ws.onopen = () => { send(); };
+ws.onerror = () => { toast('websocket error'); setMode('dead', 'ERROR'); };
+ws.onclose = () => { setMode('dead', 'DISCONNECTED');
+  toast('disconnected — the server evicts an older session when a new tab connects. Reload to take over.'); };
+
+ws.onmessage = async (ev) => {
+  if (typeof ev.data === 'string') { onJson(JSON.parse(ev.data)); return; }
+  const dv = new DataView(ev.data);
+  const tClient = dv.getFloat64(0), frame = dv.getInt32(8);
+  const gl = dv.getFloat32(12), gr = dv.getFloat32(16);
+  S.aq = dv.getInt32(20); S.inflight = dv.getInt32(48);
+  const tRecv = performance.now();
+  tArrive.push(tRecv); while (tArrive.length && tArrive[0] < tRecv - 3000) tArrive.shift();
+  S.gl = gl; S.gr = gr; S.jpgKb.push((ev.data.byteLength - HDR_LEN) / 1024); if (S.jpgKb.length > 40) S.jpgKb.shift();
+  // decode off the main thread, then draw IMMEDIATELY (no rAF hop); an older frame finishing late is skipped
+  let bmp;
+  try { bmp = await createImageBitmap(new Blob([new Uint8Array(ev.data, HDR_LEN)], { type: 'image/jpeg' })); }
+  catch (e) { nSkip += 1; return; }
+  if (frame <= lastDrawn) { bmp.close && bmp.close(); nSkip += 1; return; }
+  present(bmp, frame, tClient);
+};
+
+function present(bmp, frame, tClient) {
+  const w = bmp.width / viewOrder.length, h = bmp.height;
+  for (let k = 0; k < ctxs.length; k++) {
+    if (canvases[k].width !== w || canvases[k].height !== h) { canvases[k].width = w; canvases[k].height = h; }
+    ctxs[k].drawImage(bmp, k * w, 0, w, h, 0, 0, w, h);
+  }
+  bmp.close && bmp.close();
+  lastDrawn = frame; S.frame = frame;
+  const now = performance.now();
+  if (tLastDraw && now - tLastDraw > 300) nLate += 1;           // a >300 ms hole at 10 fps = a stalled frame
+  tLastDraw = now;
+  if (tClient > 0) { S.latDisp.push(Date.now() - tClient); if (S.latDisp.length > 40) S.latDisp.shift(); }
+  tRender.push(now); while (tRender.length && tRender[0] < now - 3000) tRender.shift();
+}
+const pct = (a, q) => { if (!a.length) return null; const s = a.slice().sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(q * s.length))]; };
+const med = a => pct(a, 0.5);
+
+function onJson(m) {
+  if (m.type === 'hello') {
+    hello = m; S.P = m.dyn_flow_steps; S.nMem = m.model ? m.model.n_memory : 0;
+    if (m.view_order && m.view_order.length) buildViews(m.view_order);
+    const md = m.model || {};
+    el('modelbadge').innerHTML = `<b>step ${md.step || '?'}</b> · ${md.res || '?'}² z${md.z_dim || '?'} · P=${m.dyn_flow_steps} · NFE ${m.decode_steps}${md.weights_dtype ? ` · ${md.weights_dtype} weights` : ''}`;
+    el('seedbadge').innerHTML = m.seed_mode === 'dup'
+      ? `<b>cold start</b> ×${m.n_seed}` : `<b>mid start</b> ${m.n_seed} frames (${(m.n_seed / 10).toFixed(0)} s)` +
+        (m.load_ms ? ` · load ${(m.load_ms / 1000).toFixed(1)} s` : '');
+    S.compiled = m.compiled || null;
+    el('pipebadge').textContent = m.pipelined ? '2-GPU pipelined' : '1 GPU serial';
+    el('pdepth').textContent = ` / ${m.dyn_flow_steps}`;
+    el('m_id').textContent = `step ${md.step || '?'} · ${md.res || '?'}² z${md.z_dim || '?'} · T ${md.n_tokens || '?'}`;
+    el('pval').textContent = m.dyn_flow_steps; el('nfe').textContent = m.decode_steps;
+    el('ctx').textContent = (md.ctx_noise || '—') + (md.t_schedule && md.t_schedule !== 'uniform' ? ` · grid ${md.t_schedule}` : '');
+    el('startmode').textContent = m.seed_mode === 'dup' ? `cold (dup ×${m.n_seed})` : `mid (${m.n_seed} frames)`;
+    el('ckpt').textContent = (md.ckpt || '').split('/').pop() || '—';
+    el('meta').textContent = `scene ${m.ep} ${(m.asset_id || '').slice(0, 8)} · "${m.task}" · action_hz ${m.action_hz}`;
+    ctrlMode = m.ctrl_mode;
+    el('ctrlsel').value = ctrlMode === 'mouse' ? 'mouse' : 'keyboard';
+    setKeys(m.ctrl || []); buildLegend(m.ctrl || []);
+    el('kbdhelp').innerHTML = ctrlMode === 'mouse'
+      ? 'Over the <b>TOP</b> view: left-click takes the <b>left</b> arm, right-click the <b>right</b> arm; the pointer sets its table ' +
+        'position, the wheel its height, the keys above its orientation, <kbd>Space</kbd> / middle click toggles its gripper. ' +
+        'The other arm holds. A still pointer idles the model.'
+      : 'Holding a key appends one action per tick to the server queue; the model drains the queue and keeps going after ' +
+        'you release, then idles with its KV cache frozen. Keys drive the end effector (differential IK); the gripper keys open / close.';
+    if (m.tasks && el('task').options.length <= 1) {
+      for (const [name, n] of m.tasks) {
+        const o = document.createElement('option'); o.value = name; o.textContent = `${name} (${n})`; el('task').appendChild(o);
+      }
+      el('task').options[0].textContent = `Any task (${m.tasks.length} scenes)`;
+    }
+    lastDrawn = -1; nSkip = 0; nLate = 0; tLastDraw = 0; S.prologue = null;
+    setState('starting');
+  } else if (m.type === 'state') {
+    S.committed = m.committed; if (m.frame !== undefined) S.frame = m.frame;
+    if (m.aq !== undefined) S.aq = m.aq; if (m.inflight !== undefined) S.inflight = m.inflight;
+    if (m.drop !== undefined) S.drop = m.drop;
+    setState(m.state);
+  } else if (m.type === 'stats') {
+    S.mem = m.mem; S.bank = m.bank; S.committed = m.committed; S.drop = m.drop; S.nMem = m.n_memory || S.nMem;
+    S.dyn = m.dyn_ms; S.dec = m.dec_ms; S.memf = m.mem_frames || []; if (m.compiled) S.compiled = m.compiled;
+    S.wsDrop = m.ws_drop || 0; S.prologue = m.prologue_ms;
+  } else if (m.type === 'pong') {
+    S.rtt = Date.now() - m.t;
+  } else if (m.type === 'mode') {
+    // ack of {"type":"mode",...}: the fresh hello that follows (unless m.reset === 'ack') re-applies ctrl_mode / ctrl
+    if (m.reset === 'ack') el('ctrlsel').value = m.mode === 'mouse' ? 'mouse' : 'keyboard';
+  } else if (m.type === 'error') {
+    toast(m.error);
+  }
+  // mouse_state is consumed by the mouse layer below
+}
+
+// ---- episode state -----------------------------------------------------------------------------
+function setState(s) { srvState = s; updateMode(); }
+function setMode(cls, txt) { const m = el('mode'); m.className = 'badge ' + cls; el('modetxt').textContent = txt; }
+function updateMode() {
+  if (ws.readyState > 1) return setMode('dead', 'DISCONNECTED');
+  if (srvState === 'starting') return setMode('starting', 'STARTING');
+  if (srvState === 'streaming') return setMode('streaming', 'STREAMING');
+  setMode('idle', 'IDLE');
+}
+
+// ---- ONE 4 Hz dashboard update (never per frame) -----------------------------------------------
+const LASTV = {};
+function setV(id, txt, cls) { const k = txt + '|' + cls; if (LASTV[id] === k) return; LASTV[id] = k;
+  const e = el(id); e.textContent = txt; e.className = 'v ' + (cls || '') + (e.classList.contains('mono') ? ' mono' : ''); }
+function setBig(id, txt, unit, cls) { const k = txt + '|' + cls; if (LASTV[id] === k) return; LASTV[id] = k;
+  const e = el(id); e.innerHTML = txt + (unit ? `<small>${unit}</small>` : ''); e.className = 'big ' + (cls || ''); }
+const f0 = v => v === null || v === undefined ? '—' : v.toFixed(0);
+function updateDash() {
+  const mfps = tArrive.length / 3, rfps = tRender.length / 3;
+  setBig('mfps', mfps.toFixed(1), '', grade(mfps, TH.mfps)); setBig('rfps', rfps.toFixed(1), '', grade(rfps, TH.rfps));
+  const P = S.P || 8, mtpOk = P * 55 + 250, mtpWarn = P * 55 + 450;        // budget: pyramid + ~250 ms of transport
+  const l50 = med(S.latDisp), l90 = pct(S.latDisp, 0.9);
+  setBig('lat', f0(l50), 'ms', grade(l50, [mtpOk, mtpWarn])); setBig('latp90', f0(l90), 'ms', grade(l90, [mtpOk + 100, mtpWarn + 100]));
+  setV('rtt', S.rtt === null ? '—' : `${f0(S.rtt)} ms`, 'na');
+  setV('aq', S.aq, grade(S.aq, TH.aq)); el('aqbar').style.width = Math.min(100, S.aq * 10) + '%'; el('aqbar').className = grade(S.aq, TH.aq);
+  el('inflight').innerHTML = S.inflight + `<small id="pdepth"> / ${S.P}</small>`;
+  el('ifbar').style.width = (S.P ? Math.min(100, 100 * S.inflight / S.P) : 0) + '%';
+  setV('frame', `${S.frame < 0 ? '—' : S.frame} · ${S.committed}`, 'na');
+  const drops = S.wsDrop + nLate + S.drop;
+  setV('losses', `${S.wsDrop} · ${nLate} · ${S.drop} · ${nSkip}`, grade(drops, TH.drops));
+  setV('jpg', S.jpgKb.length ? `${med(S.jpgKb).toFixed(0)} kB` : '—', 'na');
+  // model
+  const c = S.compiled || {};
+  setBig('dyn', f0(S.dyn), 'ms', S.dyn === null || S.dyn === undefined ? 'na' : grade(S.dyn, [55, 75]));
+  el('dync').textContent = (c.dynamics_stream_decode ? `⚡ compiled${c.dynamics_compiled_at_load ? ' · at load' : ''}` : (c.dynamics_stream_decode === false ? 'eager (compiles on first rollout)' : ''))
+    + (c.dynamics_weights_dtype ? ` · ${c.dynamics_weights_dtype} weights` : '');
+  el('dync').className = 'k mono ' + (c.dynamics_stream_decode ? 'ok' : c.dynamics_stream_decode === false ? 'bad' : '');
+  setBig('dec', f0(S.dec), 'ms', grade(S.dec, TH.dec));
+  el('decc').textContent = c.decoder ? `⚡ compiled (${c.decoder_mode}, cudagraphs ${c.decoder_cudagraphs})` : (c.decoder === false ? 'eager' : '');
+  el('decc').className = 'k mono ' + (c.decoder && String(c.decoder_cudagraphs).startsWith('on') ? 'ok' : c.decoder ? 'warn' : c.decoder === false ? 'bad' : '');
+  setV('prol', S.prologue ? `${(S.prologue / 1000).toFixed(1)} s` : '—', 'na');
+  // memory
+  setBig('mem', S.mem === null ? '—' : `${S.mem} / ${S.nMem}`, '', S.mem === null ? 'na' : 'ok');
+  el('memtag').textContent = S.memf.length ? (new Set(S.memf).size === 1 ? 'duplicate frame-0 memory (cold start)' : 'keyframes') : '';
+  const mt = el('memtiles').children;
+  for (let k = 0; k < mt.length; k++) { const on = k < S.memf.length; mt[k].className = 'memtile' + (on ? ' on' : ''); mt[k].textContent = on ? S.memf[k] : '·'; }
+  setV('bank', S.bank === null ? '—' : S.bank, 'na');
+  setV('memf', S.memf.length ? S.memf.join(' ') : '—', 'na');
+  setV('lgrip', S.gl === null ? '—' : `${S.gl.toFixed(2)} · ${S.gr.toFixed(2)}`, 'na');
+  el('sock').innerHTML = `<span class="dot" style="background:${ws.readyState === 1 ? 'var(--acc)' : 'var(--err)'}"></span> ${SOCK[ws.readyState]}`;
+  // sparklines
+  R.fps.push(mfps); if (l50 !== null) R.lat.push(l50);
+  spark('sp_fps', R.fps.values(), 'sp_fps_l', v => v.toFixed(1), grade(mfps, TH.mfps));
+  spark('sp_lat', R.lat.values(), 'sp_lat_l', v => v.toFixed(0), grade(l50, [mtpOk, mtpWarn]));
+}
+setInterval(updateDash, 250);
+
+// ---- keyboard: control keys (send-on-change, 50 Hz) + shortcuts ---------------------------------
+function setKeys(ctrl) {
+  KEYLIST = ctrl.flatMap(c => [c[0], c[1]]); keys = {}; KEYMAP = {};
+  KEYLIST.forEach(k => { keys[k] = false; KEYMAP[CODE_OF(k)] = k; });
+}
+const esc = ch => ch.replace(/[^a-z0-9]/gi, c => 'x' + c.charCodeAt(0));
+function buildLegend(ctrl) {
+  el('legend').innerHTML = '<table>' + ctrl.map(([up, dn, dim, lab]) =>
+    `<tr><td><kbd>${up.toUpperCase()}</kbd>/<kbd>${dn.toUpperCase()}</kbd></td><td>${lab} <span class="muted">(+ / −)</span></td>` +
+    `<td><span id="k_${esc(up)}" class="off">${up.toUpperCase()}</span> <span id="k_${esc(dn)}" class="off">${dn.toUpperCase()}</span></td></tr>`).join('') + '</table>';
+}
+function send() {
+  if (ws.readyState !== 1) return;
+  ws.send(JSON.stringify({ type: 'keys', keys, t_client: Date.now() }));
+}
+function paintKeys() { for (const k of KEYLIST) { const e = el('k_' + esc(k)); if (e) e.className = keys[k] ? 'on' : 'off'; } }
+function inField(e) { return ['SELECT', 'INPUT', 'TEXTAREA'].includes((e.target || {}).tagName); }
+window.addEventListener('keydown', e => {
+  if (inField(e)) return;
+  if (e.key === '?') { e.preventDefault(); el('help').classList.toggle('on'); return; }
+  if (e.key === 'Escape') { el('help').classList.remove('on'); return; }
+  if (e.shiftKey && e.code === 'KeyN') { e.preventDefault(); doReset(true); return; }
+  if (e.shiftKey && e.code === 'KeyR') { e.preventDefault(); doReset(false); return; }
+  if (e.code in KEYMAP && !e.shiftKey) { e.preventDefault(); keys[KEYMAP[e.code]] = true; }
+});
+window.addEventListener('keyup', e => { if (e.code in KEYMAP) { e.preventDefault(); keys[KEYMAP[e.code]] = false; } });
+window.addEventListener('blur', () => { KEYLIST.forEach(k => keys[k] = false); });
+setInterval(() => { const s = JSON.stringify(keys); if (s !== lastSent) { lastSent = s; paintKeys(); send(); } }, 20);
+setInterval(send, 1000);                                   // heartbeat: re-asserts key state
+setInterval(() => { if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'ping', t: Date.now() })); }, 2000);
+
+// ---- actions -----------------------------------------------------------------------------------
+function doReset(newEp) {
+  lastDrawn = -1; nLate = 0; nSkip = 0; tLastDraw = 0;
+  ws.send(JSON.stringify({ type: 'reset', new_episode: newEp, task: newEp ? el('task').value : undefined,
+                           seed_mode: el('seedmode').value }));
+}
+el('reset').onclick = () => doReset(false);
+el('newep').onclick = () => doReset(true);
+el('ctrlsel').onchange = () => {                           // live input-mode switch: keeps the scene, re-seeds it
+  lastDrawn = -1;
+  ws.send(JSON.stringify({ type: 'mode', mode: el('ctrlsel').value, task: el('task').value, new_episode: false }));
+  el('ctrlsel').blur();
+};
+el('helpbtn').onclick = () => el('help').classList.toggle('on');
+el('help').onclick = e => { if (e.target === el('help')) el('help').classList.remove('on'); };
+
+function toast(msg, kind) {
+  const d = document.createElement('div'); d.className = 'toast' + (kind === 'info' ? ' info' : ''); d.textContent = msg;
+  el('toasts').appendChild(d); setTimeout(() => d.remove(), kind === 'info' ? 6000 : 12000);
+}
+</script>
+
+<script>
+/* MOUSE input mode. Active only while the session is in mouse mode (`ctrlMode === 'mouse'`, from hello.ctrl_mode). Over the TOP view:
+     left click  = take the LEFT arm      right click = take the RIGHT arm (context menu suppressed)     middle click = its gripper
+     pointer     = the selected arm's TCP x,y: the view is stretched ABSOLUTELY over that arm's table-plane box (hello.mouse.box /
+                   .axes); leaving the view holds (at where the pointer was 150 ms before it left)
+     wheel       = height, hello.mouse.dz per notch (100 px of deltaY; trackpad deltas accumulate), down = raise, up = lower
+     Space       = toggle the selected arm's gripper; q/w roll, a/s pitch, z/x yaw are the page's ordinary held keys (hello.ctrl)
+   Picking an arm: a click that CHANGES the arm holds it for hello.mouse.grace_s (a countdown ring at the cursor); the pointer's position
+   when the ring closes becomes the target, so the arm never jumps to where the pointer was steering the other arm.
+   Sends {"type":"mouse", arm?, u?, v?, in?, dz?, grip?, t} on the page's `ws` (pointer moves throttled to ~30 Hz); the server smooths,
+   rate-limits and servos the arm, and pushes `mouse_state` (targets, current TCP, gripper, reach limit) which this layer draws:
+   crosshair at the pointer, target ring + current-EE dot per arm (the selected arm bold in its colour, L amber / R green), a z gauge
+   and a one-line hint. Touch: a tap moves the selected arm (L by default). Uses the page's globals (ws, hello, ctrlMode, viewOrder). */
+(function () {
+  const COL = { L: '#ffc85a', R: '#78ff78' };
+  const ST = { arm: null, inside: false, hist: [], u: 0, v: 0, ms: null, acc: 0, tSend: 0, timer: null, nSent: 0, graceEnd: 0 };
+  window.DEMO_MOUSE = ST;
+  const isMouse = () => { try { return typeof ctrlMode !== 'undefined' && ctrlMode === 'mouse'; } catch (e) { return false; } };
+  const sock = () => { try { return (typeof ws !== 'undefined' && ws.readyState === 1) ? ws : null; } catch (e) { return null; } };
+  const H = () => { try { return (typeof hello !== 'undefined' && hello) ? hello : null; } catch (e) { return null; } };
+  const MZ = () => ((H() || {}).mouse) || {};                           // hello.mouse: box, axes, grace_s, dz, ...
+  // s left of the selection hold: the page's own clock (smooth ring) or the server's `grace` (whichever ends later)
+  const graceLeft = () => Math.max(ST.graceEnd ? (ST.graceEnd - performance.now()) / 1000 : 0, (ST.ms && ST.ms.grace) || 0);
+
+  const css = document.createElement('style');
+  css.textContent = `
+  .mz { position:absolute; inset:0; pointer-events:none; }
+  .mz canvas { position:absolute; inset:0; width:100%; height:100%; aspect-ratio:auto; background:transparent; }
+  .mz .mz-pill { position:absolute; right:8px; top:6px; font:700 11px ui-monospace,Menlo,monospace; padding:2px 8px; border-radius:999px;
+                 background:#000a; border:1px solid #fff4; color:#fff; }
+  .mz .mz-gauge { position:absolute; right:8px; top:30px; bottom:34px; width:8px; border-radius:4px; background:#000a; border:1px solid #fff4; }
+  .mz .mz-gauge i { position:absolute; left:-4px; right:-4px; height:2px; background:#fff; }
+  .mz .mz-gauge b { position:absolute; left:0; right:0; bottom:0; border-radius:3px; background:#fff6; }
+  .mz .mz-zl { position:absolute; right:20px; bottom:30px; font:600 10px ui-monospace,Menlo,monospace; color:#fff; text-shadow:0 1px 2px #000; }
+  .mz .mz-hint { position:absolute; left:6px; right:6px; bottom:5px; font:600 10.5px/1.25 -apple-system,Inter,sans-serif; color:#fff;
+                 text-shadow:0 1px 2px #000, 0 0 4px #000; text-align:center; opacity:.9; }
+  .mz .mz-hint b { color:#ffd866; }
+  body.mouse-on #views figure.mz-top { cursor:crosshair; outline:2px solid var(--mzc, #fff3); outline-offset:-2px; }
+  body.mouse-on #views figure.mz-top canvas { touch-action:none; }`;
+  document.head.appendChild(css);
+
+  function topFig() {
+    const vs = document.getElementById('views');
+    let i = -1; try { i = viewOrder.indexOf('top'); } catch (e) { return null; }
+    return (vs && i >= 0) ? vs.children[i] || null : null;
+  }
+  let ov = null;
+  function ensureOverlay() {
+    const f = topFig();
+    if (!isMouse() || !f) {
+      if (ov && ov.root.parentNode) { ov.fig.classList.remove('mz-top'); ov.root.remove(); }
+      ov = null; document.body.classList.remove('mouse-on'); return null;
+    }
+    document.body.classList.add('mouse-on');
+    if (ov && ov.fig === f && ov.root.parentNode === f) return ov;
+    if (ov && ov.root.parentNode) ov.root.remove();
+    const root = document.createElement('div'); root.className = 'mz';
+    root.innerHTML = '<canvas></canvas><span class="mz-pill">click an arm</span><div class="mz-gauge"><b></b><i></i></div><span class="mz-zl"></span>' +
+      '<div class="mz-hint">left-click <b>L</b> arm · right-click <b>R</b> arm · wheel height · <b>q/w</b> <b>a/s</b> <b>z/x</b> orientation · <b>space</b> gripper</div>';
+    f.appendChild(root); f.classList.add('mz-top');
+    ov = { fig: f, root, cv: root.querySelector('canvas'), pill: root.querySelector('.mz-pill'), fill: root.querySelector('.mz-gauge b'),
+           tick: root.querySelector('.mz-gauge i'), zl: root.querySelector('.mz-zl') };
+    bind(f);
+    draw();
+    return ov;
+  }
+
+  // ---- input --------------------------------------------------------------------------------------------------------------
+  function send(o) { const s = sock(); if (!s) return; o.type = 'mouse'; o.t = Date.now(); s.send(JSON.stringify(o)); ST.nSent += 1; }
+  function uvOf(e, f) {
+    const c = f.querySelector('canvas'); const r = c.getBoundingClientRect();
+    return [(e.clientX - r.left) / Math.max(1, r.width), (e.clientY - r.top) / Math.max(1, r.height)];
+  }
+  function sendMove() {                               // ~30 Hz: the newest pointer position, never a backlog
+    ST.timer = null;
+    const now = performance.now();
+    if (now - ST.tSend < 33) { ST.timer = setTimeout(sendMove, 33 - (now - ST.tSend)); return; }
+    ST.tSend = now;
+    send(ST.inside ? { u: +ST.u.toFixed(4), v: +ST.v.toFixed(4), in: true } : { in: false });
+  }
+  const queueMove = () => { if (!ST.timer) sendMove(); };
+  function bind(f) {
+    if (f.dataset.mzBound) return;
+    f.dataset.mzBound = '1';
+    f.addEventListener('pointermove', e => {
+      if (!isMouse()) return;
+      const [u, v] = uvOf(e, f); const inside = u >= 0 && u <= 1 && v >= 0 && v <= 1;
+      ST.u = u; ST.v = v; ST.inside = inside; queueMove(); draw();
+      const t = performance.now(); ST.hist.push([t, u, v]); while (ST.hist.length && t - ST.hist[0][0] > 400) ST.hist.shift();
+    });
+    // leaving the view HOLDS; the hold point is where the pointer was 150 ms before it left (the last stretch toward the
+    // edge, heading for a button, is not meant as a target)
+    f.addEventListener('pointerleave', () => {
+      if (!isMouse()) return;
+      const t = performance.now(), old = ST.hist.filter(p => t - p[0] >= 150).pop();
+      if (old && ST.arm) send({ u: +old[1].toFixed(4), v: +old[2].toFixed(4), in: true });
+      ST.inside = false; ST.hist = []; queueMove(); draw();
+    });
+    f.addEventListener('pointerdown', e => {
+      if (!isMouse()) return;
+      e.preventDefault();
+      const [u, v] = uvOf(e, f); ST.u = u; ST.v = v; ST.inside = true;
+      if (e.button === 1) { send({ grip: 'toggle' }); return; }
+      const arm = e.pointerType === 'touch' ? (ST.arm || 'L') : (e.button === 2 ? 'R' : e.button === 0 ? 'L' : null);
+      if (!arm) return;
+      const picked = arm !== ST.arm || !(ST.ms && ST.ms.active);           // a change of arm, or the session's first click
+      if (picked) { ST.graceEnd = performance.now() + 1000 * (+MZ().grace_s || 1); tick(); }
+      ST.arm = arm; ST.tSend = performance.now();
+      send({ arm, u: +u.toFixed(4), v: +v.toFixed(4), in: true });
+      draw();
+    });
+    f.addEventListener('contextmenu', e => { if (isMouse()) e.preventDefault(); });
+    f.addEventListener('auxclick', e => { if (isMouse()) e.preventDefault(); });
+    f.addEventListener('wheel', e => {
+      if (!isMouse()) return;
+      e.preventDefault();
+      const px = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1);
+      ST.acc += px / 100;                            // 100 px = one notch; wheel DOWN (positive deltaY) raises, UP lowers
+      const n = ST.acc > 0 ? Math.floor(ST.acc + 1e-6) : Math.ceil(ST.acc - 1e-6);   // epsilon: ten 0.1 deltas are one notch
+      if (n) { ST.acc -= n; send({ dz: n }); }
+    }, { passive: false });
+  }
+  const inField = e => ['SELECT', 'INPUT', 'TEXTAREA'].includes((e.target || {}).tagName);
+  window.addEventListener('keydown', e => {                 // Space = gripper (a focused button must not also be "clicked")
+    if (!isMouse() || e.code !== 'Space' || inField(e)) return;
+    e.preventDefault();
+    if (document.activeElement && document.activeElement.tagName === 'BUTTON') document.activeElement.blur();
+    if (!e.repeat) send({ grip: 'toggle' });
+  }, true);
+  window.addEventListener('keyup', e => { if (isMouse() && e.code === 'Space' && !inField(e)) e.preventDefault(); }, true);
+
+  // ---- server state -> drawing ------------------------------------------------------------------------------------------
+  function hook() {
+    let s; try { s = typeof ws !== 'undefined' ? ws : null; } catch (e) { s = null; }
+    if (!s || s.__mz) return; s.__mz = true;
+    s.addEventListener('message', ev => {
+      if (typeof ev.data !== 'string' || ev.data.indexOf('"mouse_state"') < 0) return;
+      try { const m = JSON.parse(ev.data); if (m.type === 'mouse_state') { ST.ms = m; if (m.arm) ST.arm = m.arm; draw(); } } catch (e) {}
+    });
+  }
+  let raf = 0;
+  function draw() { if (!raf) raf = requestAnimationFrame(paint); }
+  function tick() { draw(); if (graceLeft() > 0) requestAnimationFrame(tick); else { ST.graceEnd = 0; draw(); } }   // ring animation
+  function paint() {
+    raf = 0;
+    if (!ov) return;
+    const c = ov.cv, dpr = window.devicePixelRatio || 1, W = Math.round(c.clientWidth * dpr), Hh = Math.round(c.clientHeight * dpr);
+    if (!W || !Hh) return;
+    if (c.width !== W || c.height !== Hh) { c.width = W; c.height = Hh; }
+    const g = c.getContext('2d'); g.clearRect(0, 0, W, Hh);
+    const ms = ST.ms, arm = (ms && ms.arm) || ST.arm, active = ms ? ms.active : false;
+    const P = uv => [Math.max(0, Math.min(1, uv[0])) * W, Math.max(0, Math.min(1, uv[1])) * Hh];
+    if (ms) for (const a of ['L', 'R']) {
+      const sel = a === arm, col = COL[a];
+      const [tx, ty] = P(ms.uv_tgt[a]), [ex, ey] = P(ms.uv_ee[a]);
+      g.globalAlpha = sel ? 1 : 0.45;
+      g.strokeStyle = col; g.fillStyle = col; g.lineWidth = (sel ? 2 : 1.2) * dpr;
+      if (Math.hypot(tx - ex, ty - ey) > 3 * dpr) { g.setLineDash([4 * dpr, 4 * dpr]); g.beginPath(); g.moveTo(ex, ey); g.lineTo(tx, ty); g.stroke(); g.setLineDash([]); }
+      g.beginPath(); g.arc(tx, ty, (sel ? 9 : 6) * dpr, 0, 6.2832); g.stroke();
+      g.beginPath(); g.arc(ex, ey, (sel ? 4 : 3) * dpr, 0, 6.2832); g.fill();
+      g.font = `700 ${10 * dpr}px ui-monospace,Menlo,monospace`; g.fillText(a, tx + 10 * dpr, ty - 8 * dpr);
+    }
+    g.globalAlpha = 1;
+    const gl = active ? graceLeft() : 0, gs = +MZ().grace_s || 1;
+    if (ST.inside && active) {                                    // crosshair at the pointer, in the selected arm's colour
+      const x = ST.u * W, y = ST.v * Hh; g.strokeStyle = COL[arm] || '#fff'; g.lineWidth = 1 * dpr;
+      g.beginPath(); g.moveTo(x - 14 * dpr, y); g.lineTo(x - 4 * dpr, y); g.moveTo(x + 4 * dpr, y); g.lineTo(x + 14 * dpr, y);
+      g.moveTo(x, y - 14 * dpr); g.lineTo(x, y - 4 * dpr); g.moveTo(x, y + 4 * dpr); g.lineTo(x, y + 14 * dpr); g.stroke();
+      if (gl > 0) {                                               // selection hold: a ring that empties clockwise, then tracking starts
+        g.lineWidth = 2.5 * dpr; g.globalAlpha = 0.35; g.beginPath(); g.arc(x, y, 20 * dpr, 0, 6.2832); g.stroke();
+        g.globalAlpha = 1; g.beginPath(); g.arc(x, y, 20 * dpr, -1.5708, -1.5708 + 6.2832 * Math.min(1, gl / gs)); g.stroke();
+        g.font = `700 ${10 * dpr}px ui-monospace,Menlo,monospace`; g.fillStyle = COL[arm] || '#fff'; g.textAlign = 'center';
+        g.fillText(gl.toFixed(1), x, y + 34 * dpr); g.textAlign = 'start';
+      }
+    }
+    const col = COL[arm] || '#fff';
+    ov.fig.style.setProperty('--mzc', active ? col : '#fff3');
+    const gr = ms && arm ? ms.g_tgt[arm] : null;
+    ov.pill.textContent = !active ? (arm ? `click to take an arm (${arm} suggested)` : 'click to take an arm')
+      : gl > 0 ? `${arm} ARM · aim · tracking in ${gl.toFixed(1)} s`
+      : `${arm} ARM · gripper ${gr === null ? '—' : gr > 0.5 ? 'open' : 'closed'}` + (ms && ms.limit && ms.limit[arm] ? ' · REACH LIMIT' : '');
+    ov.pill.style.color = active ? col : '#fff'; ov.pill.style.borderColor = active ? col : '#fff4';
+    if (ms && arm) {                                              // z gauge: fill = current TCP z, tick = target, over the arm's box
+      const [z0, z1] = ms.z_box[arm], f = z => Math.max(0, Math.min(1, (z - z0) / Math.max(1e-6, z1 - z0)));
+      ov.fill.style.height = (100 * f(ms.ee[arm][2])) + '%'; ov.fill.style.background = col + '99';
+      ov.tick.style.bottom = `calc(${100 * f(ms.tgt[arm][2])}% - 1px)`; ov.tick.style.background = col;
+      ov.zl.textContent = `z ${(ms.ee[arm][2] * 100).toFixed(0)} cm`;
+    }
+  }
+  setInterval(() => { hook(); ensureOverlay(); }, 250);
+  window.addEventListener('resize', draw);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,147 @@
+# Fully resolved config of the released dynamics checkpoint (dreamfar_v9, step 54000), as produced by
+# `python -m dreamfar.train.dump_config name=dreamfar_v9 algorithm=dynamics dataset=latents ...`. The dataset.*
+# and tokenizer/urdf paths are placeholders: pass the real ones on the command line (README).
+algorithm:
+  kind: dynamics
+  obs_keys:
+  - top
+  - left
+  - right
+  image_size: 256
+  z_dim: 16
+  n_frames: 50
+  frame_skip: 3
+  n_memory: 8
+  tokenizer_ckpt: /path/to/tok256_step000200000.ckpt
+  tokenizer_config: /path/to/tok256_ssdd_final_v1.yaml
+  init_dynamics_ckpt: null
+  action_dim: 20
+  pose_dim: 14
+  flow_timescale: 1000.0
+  logit_normal_mean: 0.0
+  logit_normal_std: 1.0
+  clip_noise: 6.0
+  stabilization_level: 0.1
+  state_pred_weight: 0.1
+  contact_readout_layer: -1
+  contact_infer_t: 0.5
+  contact_min_dwell: 0
+  contact_pred_weight: 0.1
+  stream_cwl: true
+  stream_cwl_w_none: 0.5
+  stream_cwl_w_contact: 1.5
+  stream_cwl_w_near: 3.0
+  stream_cwl_near_frames: 5
+  stream_cwl_normalize: true
+  mcp_snr_shift: 2.0
+  mcp_loss_weights:
+  - 0.1
+  - 0.04
+  - 0.02
+  mcp_state_loss: true
+  kf_sim_weight: 1.0
+  kf_time_weight: 0.2
+  kf_normalize_sim: true
+  kf_dt_ref_s: 30.0
+  ee_urdf_path: /path/to/yam.urdf
+  streaming:
+    dt_span: 49.0
+    dt_ref: 1274.0
+    kv_pool_resident: 100
+  dit:
+    dim: 2048
+    depth: 28
+    action_emb_dim: 512
+    cond_emb_dim: 512
+    mlp_ratio: 2.6667
+    attn_dim_head: 128
+    attn_heads: 16
+    patch_size: 2
+    full_attn_layers:
+    - 3
+    - 9
+    - 15
+    - 21
+    - 27
+    mcp_depths: 3
+    mcp_blocks_per_depth: 1
+    mcp_tap_layers: null
+  mlp_hidden_multiple: 8
+  grad_checkpoint: true
+  dyn_flow_steps: 10
+  infer_t_schedule: uniform
+  stream_ctx_noise:
+  - 0.2
+  - 0.3
+  stream_snap_reuse: true
+  infer_weights_dtype: fp32
+  val_stream_ar_batches: 2
+  val_ar_rows: 1
+  val_sample_seed: 42
+  lr: 0.001
+  weight_decay: 0.01
+  optimizer_beta:
+  - 0.9
+  - 0.95
+  optimizer_eps: 1.0e-10
+  warmup_steps: 1000
+  lr_min: null
+  lr_decay_start: null
+  lr_decay_steps: null
+  ema_decay: 0.999
+  ema_warmup: true
+dataset:
+  latent_root: /path/to/latents
+  contact_dir: /path/to/contact
+  heldout_path: /path/to/heldout.json
+  normalizer_path: /path/to/normalizer.pt
+  seed: 42
+  obs_keys:
+  - top
+  - left
+  - right
+  resolution: 256
+  latent_channels: 16
+  horizon: 50
+  val_horizon: 50
+  frame_skip: 3
+  window_stride: 20
+  num_workers: 16
+  val_num_workers: 4
+  n_memory: 8
+  n_mem_pool: 30
+  mem_dropout_prob: 0.2
+  contact_min_dwell: 0
+  kf_sim_weight: 1.0
+  kf_time_weight: 0.2
+  kf_normalize_sim: true
+  kf_dt_ref_s: 30.0
+  mcp_target_frames: 3
+experiment:
+  num_nodes: 1
+  num_devices: 8
+  ddp_timeout_min: 60
+  ddp:
+    find_unused_parameters: true
+    comm_hook: bf16
+  training:
+    precision: bf16-mixed
+    compile: true
+    batch_size: 8
+    accumulate_grad_batches: 1
+    gradient_clip_val: 0.5
+    max_steps: 200000
+    log_every_n_steps: 10
+    checkpointing:
+      every_n_train_steps: 500
+  validation:
+    batch_size: 8
+    val_every_n_step: 2000
+    limit_batch: 64
+name: dreamfar_v9
+ckpt_root: outputs/checkpoints
+resume: null
+wandb:
+  mode: disabled
+  project: dreamfar
+  entity: null

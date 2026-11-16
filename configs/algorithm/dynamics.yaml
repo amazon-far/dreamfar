@@ -1,0 +1,93 @@
+# @package algorithm
+# Streaming latent dynamics (DynamicsModule). Values = the released DreamFAR recipe.
+kind: dynamics
+obs_keys: ${dataset.obs_keys}
+image_size: ${dataset.resolution}
+z_dim: ${dataset.latent_channels}
+n_frames: ${dataset.horizon}
+frame_skip: ${dataset.frame_skip}
+n_memory: ${dataset.n_memory}
+
+# frozen tokenizer (decoder only is used; latents are precomputed)
+tokenizer_ckpt: ???
+tokenizer_config: ???
+init_dynamics_ckpt: null  # weights-only warm start from another run's checkpoint (fresh optimizer)
+
+action_dim: 20            # EE-pose action [L_pos(3) L_rot6d(6) L_grip | R ...]
+pose_dim: 14              # state token = joint angles + grippers
+flow_timescale: 1000.0
+logit_normal_mean: 0.0    # training flow-time ~ sigmoid(N(mean, std))
+logit_normal_std: 1.0
+clip_noise: 6.0
+stabilization_level: 0.1  # memory flow-time (train + infer)
+state_pred_weight: 0.1
+
+# contact head (detached readout of the state token at a middle block) + contact keyframes
+contact_readout_layer: -1
+contact_infer_t: 0.5
+contact_min_dwell: ${dataset.contact_min_dwell}
+contact_pred_weight: 0.1
+# per-frame contact re-weighting of the image flow loss (near a transition > in contact > none)
+stream_cwl: true
+stream_cwl_w_none: 0.5
+stream_cwl_w_contact: 1.5
+stream_cwl_w_near: 3.0
+stream_cwl_near_frames: 5
+stream_cwl_normalize: true
+# multi-chunk prediction heads (training only)
+mcp_snr_shift: 2.0
+mcp_loss_weights: [0.1, 0.04, 0.02]
+mcp_state_loss: true
+
+# memory retrieval at inference (mirrors the loader's scoring)
+kf_sim_weight: ${dataset.kf_sim_weight}
+kf_time_weight: ${dataset.kf_time_weight}
+kf_normalize_sim: ${dataset.kf_normalize_sim}
+kf_dt_ref_s: ${dataset.kf_dt_ref_s}
+ee_urdf_path: ???         # YAM URDF for the runtime forward kinematics of predicted joints
+
+streaming:
+  dt_span: 49.0           # memory rotary position = -dt_span * log1p(dt)/log1p(dt_ref), clamped
+  dt_ref: 1274.0
+  kv_pool_resident: 100   # cached keyframe KV entries kept on GPU (LRU)
+
+dit:
+  dim: 2048
+  depth: 28
+  action_emb_dim: 512
+  cond_emb_dim: 512
+  mlp_ratio: 2.6667
+  attn_dim_head: 128
+  attn_heads: 16
+  patch_size: 2
+  full_attn_layers: [3, 9, 15, 21, 27]   # joint spatio-temporal attention blocks (AdaLN-zero gated)
+  mcp_depths: 3
+  mcp_blocks_per_depth: 1
+  mcp_tap_layers: null
+mlp_hidden_multiple: 8
+grad_checkpoint: true
+
+# inference (training-time validation uses these; the rollout/demo scripts override to the canonical
+# P=16 logit-normal grid with ctx 0.2404252730845196)
+dyn_flow_steps: 10        # pyramid depth P = Euler steps per frame
+infer_t_schedule: uniform # uniform | logit_normal
+stream_ctx_noise: [0.2, 0.3]   # committed-context flow-time: scalar, or per-frame draw from a list
+stream_snap_reuse: true
+infer_weights_dtype: fp32 # fp32 | bf16 (standalone inference only)
+
+# validation
+val_stream_ar_batches: 2
+val_ar_rows: 1
+val_sample_seed: 42
+
+# optimizer
+lr: 1e-3
+weight_decay: 0.01
+optimizer_beta: [0.9, 0.95]
+optimizer_eps: 1e-10
+warmup_steps: 1000
+lr_min: null              # with lr_decay_start: cosine lr -> lr_min from that step over lr_decay_steps
+lr_decay_start: null
+lr_decay_steps: null
+ema_decay: 0.999
+ema_warmup: true

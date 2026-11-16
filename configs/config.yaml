@@ -1,0 +1,23 @@
+# Top-level Hydra config. Pick the stage with `algorithm=tokenizer dataset=frames` or
+# `algorithm=dynamics dataset=latents`; every run needs `name=<run_name>`.
+defaults:
+  - algorithm: dynamics
+  - dataset: latents
+  - experiment: dynamics
+  - _self_
+
+name: ???                 # run name; checkpoints go to ${ckpt_root}/${name}/ and a relaunch auto-resumes
+ckpt_root: outputs/checkpoints
+# null/auto = resume ${ckpt_root}/${name}/last.ckpt if it exists; scratch = ignore it; or a .ckpt path
+resume: null
+
+wandb:
+  mode: disabled          # disabled | online | offline
+  project: dreamfar
+  entity: null
+
+hydra:
+  run:
+    dir: outputs/runs/${name}/${now:%Y-%m-%d_%H-%M-%S}
+  job:
+    chdir: false

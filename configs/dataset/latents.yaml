@@ -1,0 +1,28 @@
+# @package dataset
+# Precomputed latent shards (dreamfar.data.precompute_latents output) for dynamics training.
+latent_root: ???          # <latent_root>/shard_*/{latents.bin,states_actions.bin,states_actions_ee.bin,index.json}
+contact_dir: ???          # per-episode contact sidecars <contact_dir>/<episode_id>.json
+heldout_path: ???         # {"asset_ids": [...]} episodes held out for validation
+normalizer_path: ???      # LinearNormalizer state_dict (dreamfar.data.spec_normalizer)
+seed: 42
+
+obs_keys: [top, left, right]
+resolution: 256
+latent_channels: 16
+horizon: 50               # window length T (model frames)
+val_horizon: 50
+frame_skip: 3             # 30 Hz -> 10 Hz
+window_stride: 20         # native frames between window starts (+ random jitter)
+num_workers: 16
+val_num_workers: 4
+
+# contact-keyframe memory
+n_memory: 8               # memory slots [anchor + 7 retrieved]
+n_mem_pool: 30            # per-frame visibility: pool of candidate keyframes materialized as tokens
+mem_dropout_prob: 0.2
+contact_min_dwell: 0
+kf_sim_weight: 1.0
+kf_time_weight: 0.2
+kf_normalize_sim: true
+kf_dt_ref_s: 30.0
+mcp_target_frames: 3      # future frames past the window = algorithm.dit.mcp_depths

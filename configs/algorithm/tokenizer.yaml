@@ -1,0 +1,45 @@
+# @package algorithm
+# Image tokenizer (TokenizerModule): SSDD-native f16 encoder + U-ViT flow-matching decoder, 16x16x16
+# unit-sphere latent at 256x256. Values = the released tokenizer recipe.
+kind: tokenizer
+obs_keys: [top]           # one view per sample (the loader returns the drawn view under "top")
+image_size: ${dataset.resolution}
+z_dim: 16
+encoder:
+  patch_size: 16
+# SSDD dual init (training only): facebook/SSDD F16C16_M_256.safetensors; null = random init
+encoder_checkpoint: null
+decoder_checkpoint: null
+decoder_size: M
+decoder_attn_norm: rms_norm
+decoder_z_scale: 3.6244   # trainable scalar on z inside the decoder (init = mean SSDD latent norm)
+fm_trainer:
+  timescale: 1000
+  sigma_min: 0.0
+fm_sampler:
+  steps: 2                # Euler steps at decode
+  t_pow_shift: 2.0
+val_steps: 2
+lpips: true
+repa:                     # REPA against a frozen LingBot-Vision teacher (external package + weights)
+  lingbot_variant: small
+  lingbot_res: 512
+  lingbot_weights_dir: ???
+  lingbot_repo_dir: null  # clone of github.com/robbyant/lingbot-vision if not pip-installed
+  i_extract: 4
+  n_layers: 2
+  warmup_steps: 10000
+loss_coef:
+  diffusion: 1.0
+  lpips: 0.25             # value of the released run's resolved config (the paper text says 0.5)
+  repa: 0.1
+  uniformity: 0.1
+latent_uniformity:
+  enabled: true
+  t: 2.0
+  n_pairs: 65536
+  uniform_const: null     # null -> the analytic sphere constant for (z_dim, t)
+base_lr: 1.0e-4           # randomly initialised parts (REPA projector)
+backbone_lr: 1.0e-5       # pretrained encoder + decoder
+weight_decay: 1.0e-2
+val_panel_pool: 256

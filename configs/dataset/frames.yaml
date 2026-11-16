@@ -1,0 +1,14 @@
+# @package dataset
+# Raw episodes (<raw_root>/<episode_id>/{top,left,right}.mp4 + states_actions.bin) for tokenizer training.
+raw_root: ???
+heldout_path: null        # {"asset_ids": [...]} held out for validation; null = fractional split
+val_ratio: 0.01
+val_max_episodes: 512
+seed: 42
+resolution: 256
+views: [top, left, right]
+hflip_prob: 0.5           # train only
+frame_stride: 30          # index every N-th frame of each episode (the released run: 30)
+val_frame_stride: 30
+num_workers: 16
+val_num_workers: 4

@@ -1,0 +1,24 @@
+# @package experiment
+# Trainer settings of the dynamics recipe (per-GPU batch 8; the released run used 256 GPUs -> 2048 per step).
+num_nodes: 1
+num_devices: 8
+ddp_timeout_min: 60
+ddp:
+  find_unused_parameters: true
+  comm_hook: bf16         # bf16 | none
+
+training:
+  precision: bf16-mixed
+  compile: true           # torch.compile the compute submodules (per DiT block / tokenizer enc+dec)
+  batch_size: 8           # per GPU
+  accumulate_grad_batches: 1
+  gradient_clip_val: 0.5
+  max_steps: 200000
+  log_every_n_steps: 10
+  checkpointing:
+    every_n_train_steps: 500
+
+validation:
+  batch_size: 8
+  val_every_n_step: 2000  # optimizer steps (training batches when accumulate_grad_batches=1)
+  limit_batch: 64
