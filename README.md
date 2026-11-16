@@ -33,7 +33,9 @@ it predicts all three camera views in real time and stays consistent over minute
 
 ## Installation
 
-Python ≥ 3.11 and one NVIDIA GPU (tested: PyTorch 2.7.1 + CUDA 12.6 on A100-40GB and H200).
+Python ≥ 3.11 and one NVIDIA A100, H100 or H200 (tested: PyTorch 2.7.1 + CUDA 12.6 on A100-40GB and H200).
+Ada-generation GPUs (L40S, RTX 4090) are not supported: the model's Triton kernels need more shared memory per SM
+than they have.
 
 ```bash
 git clone https://github.com/amazon-far/dreamfar.git && cd dreamfar
