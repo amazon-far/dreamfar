@@ -49,13 +49,15 @@ pip install -e .
 ## Download
 
 Checkpoints and sample scenes are on Hugging Face: [Amazon-FAR/dreamfar](https://huggingface.co/Amazon-FAR/dreamfar).
+They are licensed under **CC BY-NC 4.0** (the tokenizer was initialized from SSDD's CC BY-NC weights; the scenes come
+from the XDOF teleoperation data). The code in this repository is Apache-2.0.
 
 | file | what | size | sha256 |
 |---|---|---|---|
 | `tok256_step000200000.ckpt` | image tokenizer: a 256×256 image → 16×16×16 unit-sphere latent | 386 MB | `1442f5a7e3deb647a6fb14c97b825388e372aa8d0a19828c6dd058f3f167cde0` |
 | `dreamfar_v9_step000054000.ckpt` | dynamics model (paper checkpoint, EMA weights, bf16) | 4.4 GB | `7c258a722f40587a5ca39bb3f49a48b187c0e8d3588757140900392fa4c61365` |
 | `spec_ee_joint_normalizer.pt` | action/state normalizer (also baked into the dynamics checkpoint; needed for training) | 9 KB | `d4a6733eebf7989d7fb8ef519ac4e8efd663da54de66af5a5f361ca4eb0adf21` |
-| `yam.urdf` | YAM bimanual station kinematics for the end-effector actions | 14 KB | `6dbda3fc41aaf9dc7eba6481011a2bbf06a0bb85816995b6276300c5098e8eb8` |
+| `yam.urdf` | YAM bimanual station kinematics (the XDOF YAM station model) for the end-effector actions | 14 KB | `6dbda3fc41aaf9dc7eba6481011a2bbf06a0bb85816995b6276300c5098e8eb8` |
 | `scenes/` | 10 sample start scenes (latents, states, contact labels; see `scenes/README_scenes.md`) | 136 MB | `scenes/SHA256SUMS` |
 
 ```bash
@@ -130,6 +132,7 @@ GPUS=8 bash scripts/train_dynamics.sh name=dreamfar_v9 \
 ## License
 
 The code in this repository is licensed under the Apache License 2.0 (see [LICENSE](LICENSE) and [NOTICE](NOTICE)).
+The released weights and sample scenes on Hugging Face are licensed under CC BY-NC 4.0.
 The tokenizer requires [facebook/SSDD](https://github.com/facebookresearch/SSDD), which is not included here and is
 licensed under CC BY-NC 4.0, as are the SSDD weights the tokenizer was initialized from. All third-party components:
 [THIRD_PARTY.md](THIRD_PARTY.md).
