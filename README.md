@@ -12,7 +12,7 @@
 
 <sup>1</sup>Amazon FAR &nbsp; <sup>2</sup>Cornell University &nbsp; <sup>3</sup>University of Maryland, College Park &nbsp; <sup>4</sup>University of Pennsylvania
 
-[![Paper](https://img.shields.io/badge/Paper-PDF-b31b1b.svg)](https://amazon-far.github.io/dreamfar/assets/paper/DreamFAR.pdf)
+[![Paper](https://img.shields.io/badge/Paper-arXiv-b31b1b.svg)](https://arxiv.org/abs/2611.22001)
 [![Project page](https://img.shields.io/badge/Project-page-blue.svg)](https://amazon-far.github.io/dreamfar/)
 [![Code](https://img.shields.io/badge/Code-GitHub-black.svg)](https://github.com/amazon-far/dreamfar)
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
@@ -104,9 +104,9 @@ GPUS=8 bash scripts/train_dynamics.sh name=dreamfar_v9 \
 
 ```bibtex
 @article{dreamfar2026,
-  title   = {DreamFAR: TITLE},
-  author  = {AUTHORS},
-  journal = {arXiv preprint arXiv:PAPER-ID},
+  title   = {DreamFAR: Real-Time and Long-Horizon Interaction with Diverse Objects},
+  author  = {Dou, Yiming and He, Botao and Loquercio, Antonio and Owens, Andrew and Malik, Jitendra and Sontakke, Sumedh Anand and Liu, Ruoshi},
+  journal = {arXiv preprint arXiv:2611.22001},
   year    = {2026}
 }
 ```
