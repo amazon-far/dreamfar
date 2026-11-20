@@ -9,7 +9,7 @@ omegaconf==2.3.0
 numpy==1.26.4
 einops==0.8.0
 rotary-embedding-torch==0.8.6
-safetensors>=0.4
+safetensors==0.8.0
 # diffusers + pyyaml are imported by the ssdd package (scripts/install_ssdd.sh)
 diffusers==0.38.0
 pyyaml>=6.0
