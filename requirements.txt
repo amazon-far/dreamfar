@@ -19,7 +19,7 @@ lpips==0.1.4
 torchmetrics[image]==1.0.3
 av==16.0.1
 imageio==2.36.1
-imageio-ffmpeg==0.4.7
+imageio-ffmpeg==0.5.1
 opencv-python-headless==4.10.0.84
 scipy>=1.11
 urdfpy @ git+https://github.com/WangYixuan12/urdfpy.git
