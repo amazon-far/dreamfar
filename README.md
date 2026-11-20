@@ -15,6 +15,7 @@
 [![Paper](https://img.shields.io/badge/Paper-arXiv-b31b1b.svg)](https://arxiv.org/abs/2611.22001)
 [![Project page](https://img.shields.io/badge/Project-page-blue.svg)](https://amazon-far.github.io/dreamfar/)
 [![Code](https://img.shields.io/badge/Code-GitHub-black.svg)](https://github.com/amazon-far/dreamfar)
+[![Weights](https://img.shields.io/badge/Weights-Hugging%20Face-yellow.svg)](https://huggingface.co/Amazon-FAR/dreamfar)
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 
 <img src="assets/teaser.jpg" alt="DreamFAR teaser" width="90%"/>
@@ -61,7 +62,7 @@ from the XDOF teleoperation data). The code in this repository is Apache-2.0.
 | `scenes/` | 10 sample start scenes (latents, states, contact labels; see `scenes/README_scenes.md`) | 136 MB | `scenes/SHA256SUMS` |
 
 ```bash
-pip install -U "huggingface_hub[cli]"
+# the `hf` CLI comes with huggingface_hub, installed above by requirements.txt
 hf download Amazon-FAR/dreamfar --local-dir dreamfar_assets        # everything, ~5 GB
 (cd dreamfar_assets && sha256sum -c SHA256SUMS && cd scenes && sha256sum -c SHA256SUMS)
 # or a single file without the CLI:
